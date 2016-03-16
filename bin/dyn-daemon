@@ -1,0 +1,91 @@
+#!/usr/bin/env ruby
+require "fileutils"
+SRV=ARGV[0].strip
+exit! unless ["srv","dyntask","help","path","status"].include? SRV
+CMD={ "srv" => "dyn-srv", "dyntask" => "dyntask-server"}[SRV]
+if CMD
+  FileUtils.mkdir_p File.join(ENV["HOME"],"dyndoc","log")
+  DYN_DAEMON_ERR_FILE = File.join(ENV["HOME"],"dyndoc","log","launchctl_")+CMD+".err"
+  DYN_DAEMON_OUT_FILE = File.join(ENV["HOME"],"dyndoc","log","launchctl_")+CMD+".out"
+end
+
+unless RUBY_PLATFORM =~ /darwin/
+  puts "Only available for MacOSX!"
+  exit!
+end
+
+case SRV
+when "help"
+  puts <<-DOC
+Service helpers to launch dyn-srv or dyntask service.
+Usage:
+dyn-daemon srv|dyntask new|load       => create when not existing the dyntask service
+dyn-daemon srv|dyntask delete|unload  => unload existing service
+dyn-daemon srv|dyntask start/stop     => start/stop the dyntask service
+dyn-daemon srv|dyntask log            => to watch log files
+
+dyn-daemon status|list                => status of dyntask service
+dyn-daemon path get|set               => set PATH env to $PATH
+DOC
+when "path"
+  mode=ARGV[1]
+  mode="get" if !mode or mode.empty?
+  if mode=="get"
+    puts `launchctl getenv PATH`
+  elsif mode=="set"
+    `launchctl setenv PATH $PATH`
+  end
+when "status", "list"
+	puts `launchctl list | grep dyn`
+else
+  dyn_plist=File.expand_path("~/Library/LaunchAgents/#{CMD}.plist")
+  mode=ARGV[1]
+  mode="list" if !mode or mode.empty?
+  case mode
+  when "load","new"
+  	unless File.exists? dyn_plist
+  		plist= <<-END.sub(/CMD/,CMD).sub(/DYNCMD/,`which #{CMD}`.strip).sub(/ERR_FILE/,DYN_DAEMON_ERR_FILE).sub(/OUT_FILE/,DYN_DAEMON_OUT_FILE)
+  		<?xml version="1.0" encoding="UTF-8"?>
+  		<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  		<plist version="1.0">
+  		<dict>
+  		<key>Label</key>
+  		<string>CMD</string>
+  		<key>ProgramArguments</key>
+  		<array>
+  		<string>DYNCMD</string>
+  		</array>
+  		<key>RunAtLoad</key>
+  		<true/>
+  		<key>KeepAlive</key>
+  		<dict>
+  		<key>Crashed</key>
+  		<true/>
+  		</dict>
+  		<key>StandardErrorPath</key>
+  		<string>ERR_FILE</string>
+  		<key>StandardOutPath</key>
+  		<string>OUT_FILE</string>
+  		</dict>
+  		</plist>
+  		END
+  		File.open(dyn_plist,"w") do |f|
+  			f << plist
+  		end
+  	end
+  	`launchctl load #{dyn_plist}`
+  when "unload","delete"
+  	if File.exists? dyn_srv_plist
+  		`launchctl unload #{dyn_plist}`
+  	else
+  		puts "Service #{CMD} not available. Create it first: dyn-daemon #{SRV} new"
+  	end
+  when "start", "stop"
+  	`launchctl #{mode} #{CMD}`
+  when "log"
+  	puts "Error:"
+  	puts File.read(DYN_DAEMON_ERR_FILE)
+  	puts "Out:"
+  	puts File.read(DYN_DAEMON_OUT_FILE)
+  end
+end
