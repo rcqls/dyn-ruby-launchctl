@@ -47,10 +47,8 @@ when "status"
       tmp=tmp.split(" ")
       if tmp[0]=="-"
         "Stopped"
-      elsif tmp[1]=="-"
-        "Running"
       else
-        "Unknown"
+        "Running"
       end
     end
   end.join("|")
